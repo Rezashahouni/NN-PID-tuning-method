@@ -1,0 +1,83 @@
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.neural_network import MLPRegressor
+
+
+class PIDController:
+    def __init__(self, Kp, Ki, Kd, setpoint):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+        self.setpoint = setpoint
+        self.integral = 0
+        self.previous_error = 0
+
+    def update(self, process_variable, dt):
+        error = self.setpoint - process_variable
+        self.integral += error * dt
+        derivative = (error - self.previous_error) / dt
+        output = self.Kp * error + self.Ki * self.integral + self.Kd * derivative
+        self.previous_error = error
+        return output
+
+
+# Simulation parameters
+time = np.linspace(0, 10, 1000)  # 10 seconds, 1000 points
+dt = time[1] - time[0]
+
+# Define setpoints at different time intervals
+setpoints = np.piecewise(time,
+                         [time < 3, (time >= 3) & (time < 6), time >= 6],
+                         [5.0, 8.0, 10])
+
+# Process variables
+process_variable = 0.0
+process_values = []
+
+# Initial PID parameters
+Kp, Ki, Kd = 2.0, 8.0, 0.3
+
+# Initialize PID controller with dummy values
+pid = PIDController(Kp, Ki, Kd, setpoints[0])
+
+# ANN for PID tuning with 4 hidden layers, using MSE as the loss function and Adam optimizer
+ann = MLPRegressor(hidden_layer_sizes=(10, 10, 10, 10), max_iter=1000, solver='adam', alpha=0.0001)
+
+# Generate training data
+training_data = []
+training_labels = []
+
+for t, sp in zip(time, setpoints):
+    control_signal = pid.update(process_variable, dt)
+    process_variable += control_signal * dt  # Simple process model
+    process_values.append(process_variable)
+    training_data.append([sp, process_variable])
+    training_labels.append([Kp, Ki, Kd])
+
+# Train the ANN
+ann.fit(training_data, training_labels)
+
+# Use the ANN to update PID parameters dynamically
+process_variable = 0.0  # Reset process variable
+process_values = []  # Reset process values list
+
+# Use the trained ANN to dynamically update the PID parameters
+for t, sp in zip(time, setpoints):
+    pid.setpoint = sp
+    control_signal = pid.update(process_variable, dt)
+    process_variable += control_signal * dt  # Simple process model
+    process_values.append(process_variable)
+
+    # Update PID parameters using ANN predictions
+    Kp, Ki, Kd = ann.predict([[sp, process_variable]])[0]
+    pid.Kp, pid.Ki, pid.Kd = Kp, Ki, Kd
+
+# Plotting the results
+plt.figure(figsize=(10, 5))
+plt.plot(time, process_values, label='Process Value')
+plt.plot(time, setpoints, label='Setpoint', linestyle='--')
+plt.xlabel('Time (s)')
+plt.ylabel('Process Value')
+plt.legend()
+plt.grid(True)
+plt.show()
